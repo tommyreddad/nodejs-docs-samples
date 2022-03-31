@@ -16,6 +16,7 @@
 
 const express = require('express');
 const mysql = require('promise-mysql');
+const fs = require('fs');
 
 const app = express();
 app.set('view engine', 'pug');
@@ -41,13 +42,46 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console(), loggingWinston],
 });
 
+// Retrieve and return a specified secret from Secret Manager
+const {SecretManagerServiceClient} = require('@google-cloud/secret-manager');
+const client = new SecretManagerServiceClient();
+
+async function accessSecretVersion(secretName) {
+  const [version] = await client.accessSecretVersion({name: secretName});
+  return version.payload.data;
+}
+
+// [START cloud_sql_mysql_mysql_create_tcp_sslcerts]
+const createTcpPoolSslCerts = async config => {
+  // Extract host and port from socket address
+  const dbSocketAddr = process.env.DB_HOST.split(':');
+
+  // Establish a connection to the database
+  return mysql.createPool({
+    user: process.env.DB_USER, // e.g. 'my-db-user'
+    password: process.env.DB_PASS, // e.g. 'my-db-password'
+    database: process.env.DB_NAME, // e.g. 'my-database'
+    host: dbSocketAddr[0], // e.g. '127.0.0.1'
+    port: dbSocketAddr[1], // e.g. '3306'
+    ssl: {
+      sslmode: 'verify-full',
+      ca: fs.readFileSync(process.env.DB_ROOT_CERT), // e.g., '/path/to/my/server-ca.pem'
+      key: fs.readFileSync(process.env.DB_KEY), // e.g. '/path/to/my/client-key.pem'
+      cert: fs.readFileSync(process.env.DB_CERT), // e.g. '/path/to/my/client-cert.pem'
+    },
+    // ... Specify additional properties here.
+    ...config,
+  });
+};
+// [END cloud_sql_mysql_mysql_create_tcp_sslcerts]
+
 // [START cloud_sql_mysql_mysql_create_tcp]
 const createTcpPool = async config => {
   // Extract host and port from socket address
   const dbSocketAddr = process.env.DB_HOST.split(':');
 
   // Establish a connection to the database
-  return await mysql.createPool({
+  return mysql.createPool({
     user: process.env.DB_USER, // e.g. 'my-db-user'
     password: process.env.DB_PASS, // e.g. 'my-db-password'
     database: process.env.DB_NAME, // e.g. 'my-database'
@@ -64,12 +98,12 @@ const createUnixSocketPool = async config => {
   const dbSocketPath = process.env.DB_SOCKET_PATH || '/cloudsql';
 
   // Establish a connection to the database
-  return await mysql.createPool({
+  return mysql.createPool({
     user: process.env.DB_USER, // e.g. 'my-db-user'
     password: process.env.DB_PASS, // e.g. 'my-db-password'
     database: process.env.DB_NAME, // e.g. 'my-database'
     // If connecting via unix domain socket, specify the path
-    socketPath: `${dbSocketPath}/${process.env.CLOUD_SQL_CONNECTION_NAME}`,
+    socketPath: `${dbSocketPath}/${process.env.INSTANCE_CONNECTION_NAME}`,
     // Specify additional properties here.
     ...config,
   });
@@ -105,10 +139,28 @@ const createPool = async () => {
     // connection attempts.
     // [END cloud_sql_mysql_mysql_backoff]
   };
+
+  // Check if a Secret Manager secret version is defined
+  // If a version is defined, retrieve the secret from Secret Manager and set as the DB_PASS
+  const {CLOUD_SQL_CREDENTIALS_SECRET} = process.env;
+  if (CLOUD_SQL_CREDENTIALS_SECRET) {
+    const secrets = await accessSecretVersion(CLOUD_SQL_CREDENTIALS_SECRET);
+    try {
+      process.env.DB_PASS = secrets.toString();
+    } catch (err) {
+      err.message = `Unable to parse secret from Secret Manager. Make sure that the secret is JSON formatted: \n ${err.message} `;
+      throw err;
+    }
+  }
+
   if (process.env.DB_HOST) {
-    return await createTcpPool(config);
+    if (process.env.DB_ROOT_CERT) {
+      return createTcpPoolSslCerts(config);
+    } else {
+      return createTcpPool(config);
+    }
   } else {
-    return await createUnixSocketPool(config);
+    return createUnixSocketPool(config);
   }
 };
 
@@ -221,7 +273,7 @@ app.post('/', async (req, res) => {
   res.status(200).send(`Successfully voted for ${team} at ${timestamp}`).end();
 });
 
-const PORT = process.env.PORT || 8080;
+const PORT = parseInt(process.env.PORT) || 8080;
 const server = app.listen(PORT, () => {
   console.log(`App listening on port ${PORT}`);
   console.log('Press Ctrl+C to quit.');
