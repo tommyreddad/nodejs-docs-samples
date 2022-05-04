@@ -30,17 +30,17 @@ describe('End-to-End Tests', () => {
     );
   }
   const {SAMPLE_VERSION} = process.env;
-  const REGION = 'us-central1';
+  const REGION = 'us-west1';
   before(async () => {
     // Deploy service using Cloud Build
     let buildCmd =
       `gcloud builds submit --project ${GOOGLE_CLOUD_PROJECT} ` +
-      '--config ./test/e2e_test_setup.yaml ' +
+      '--config ./test/e2e_test_setup.yaml --timeout="15m" ' +
       `--substitutions _SERVICE=${SERVICE_NAME},_REGION=${REGION}`;
     if (SAMPLE_VERSION) buildCmd += `,_VERSION=${SAMPLE_VERSION}`;
 
     console.log('Starting Cloud Build...');
-    execSync(buildCmd);
+    execSync(buildCmd, {stdio: 'inherit'});
     console.log('Cloud Build completed.');
   });
 
@@ -65,8 +65,8 @@ describe('End-to-End Tests', () => {
     });
 
     const preparedFilter =
-      'resource.type = "cloud_run_revision" ' +
-      `resource.labels.service_name = "${SERVICE_NAME}" ` +
+      'resource.type = "cloud_run_job" ' +
+      `resource.labels.job_name = "${SERVICE_NAME}" ` +
       `resource.labels.location = "${REGION}" ` +
       `timestamp>="${dateMinutesAgo(new Date(), 5)}"`;
 
