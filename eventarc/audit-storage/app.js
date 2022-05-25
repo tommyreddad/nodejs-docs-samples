@@ -29,12 +29,15 @@ app.post('/', (req, res) => {
   );
 
   console.log(
-    `Waiting for 20 seconds...`
+    `Want to wait here...`
   );
-  await new Promise(resolve => setTimeout(resolve, 20000));
-  console.log(
-    `Finished waiting.`
-  );
+  //console.log(
+  //  `Waiting for 20 seconds...`
+  //);
+  //await new Promise(resolve => setTimeout(resolve, 20000));
+  //console.log(
+  //  `Finished waiting.`
+  //);
   return res
     .status(200)
     .send(
