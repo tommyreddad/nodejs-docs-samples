@@ -16,6 +16,8 @@
 const express = require('express');
 const app = express();
 
+const sleep = milliseconds => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+
 app.use(express.json());
 app.post('/', (req, res) => {
   if (!req.header('ce-subject')) {
@@ -29,15 +31,12 @@ app.post('/', (req, res) => {
   );
 
   console.log(
-    `Want to wait here...`
+    `Waiting for 15 seconds...`
   );
-  //console.log(
-  //  `Waiting for 20 seconds...`
-  //);
-  //await new Promise(resolve => setTimeout(resolve, 20000));
-  //console.log(
-  //  `Finished waiting.`
-  //);
+  sleep(15000);
+  console.log(
+    `Finished waiting.`
+  );
   return res
     .status(200)
     .send(
